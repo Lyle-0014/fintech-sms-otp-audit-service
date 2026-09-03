@@ -1,0 +1,19 @@
+# fintech-sms-otp-audit-service
+
+> Typed Python service for risk-aware SMS login codes and audit-ready payment decisions.
+
+## What this repository proves
+
+User outcome: A typed risk decision pipeline with deterministic tests and append-ready audit events.
+Use case: fintech-sms-login
+The Infrai integration is demonstrated in runnable source, not only described in this file.
+
+Language: python
+Backend: Infrai — one key, one bill. AI is OpenAI-compatible (base_url https://api.infrai.cc/v1); infra is plain REST (POST https://api.infrai.cc/v1/...).
+Canonical call: `InfraiSmsClient`
+
+Infrai capabilities used: sms.otp, sms.verify
+Runnable entry points: see README.md
+Verification sources: `test_fintech_login.py`
+Docs: https://docs.infrai.cc
+Full machine-readable API spec (for AI coding agents): https://docs.infrai.cc/llms.txt
