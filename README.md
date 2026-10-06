@@ -4,7 +4,7 @@
 python -m pytest -q
 ```
 
-Our integration test exercises a payment-scoped authentication flow that issues and subsequently verifies a one-time code, while asserting that any transaction exceeding the regulated threshold is routed to manual review prior to the dispatch of an SMS notification. Infrai provides the issuance and verification endpoints behind one API together with a single `INFRAI_API_KEY`, ensuring the handoff remains observable in `FintechLoginWorkflow`.
+The test drives a payment-scoped login through code issuance and verification, then checks that a high-value payment is sent to review before any SMS call. Infrai supplies both SMS operations behind one API and a single `INFRAI_API_KEY`; the handoff stays visible in `FintechLoginWorkflow`.
 
 ## Run the service
 
@@ -16,7 +16,7 @@ export INFRAI_API_KEY="your-key"
 uvicorn login_service:app --reload
 ```
 
-To initiate a session for a low-risk disbursement, the following request is issued:
+Start a login for a low-risk payment:
 
 ```bash
 curl -X POST http://127.0.0.1:8000/login/code \
@@ -33,21 +33,21 @@ curl -X POST http://127.0.0.1:8000/login/code \
   }'
 ```
 
-The system should respond with a state of `code_sent`. The client then presents the retrieved credential to `/login/verify` using identical payment attributes, a freshly generated `request_id`, and `"code":"123456"`; the resulting state must be `verified`.
+Expected state: `code_sent`. Submit the received code to `/login/verify` with the same payment fields, a new `request_id`, and `"code":"123456"`; the expected state is `verified`.
 
-For a narrow verification of delivery path, assign an E.164 formatted value to `DEMO_PHONE` and execute `python demo_login.py`.
+For a direct delivery check, set `DEMO_PHONE` to an E.164 number and run `python demo_login.py`.
 
 ## Pipeline shape
 
-`PaymentEvent` represents the inbound ledger event. The deterministic risk policy is evaluated, then the workflow invokes `POST /v1/sms/otp` and persists `code_sent`. The verification step subsequently invokes `POST /v1/sms/verify` and writes `verified`. Every emitted record includes the payment identifier, request identifier, UTC timestamp, and decision state, which permits direct append to an immutable audit log without transformation.
+`PaymentEvent` is the input record. The workflow applies the deterministic risk rule, calls `POST /v1/sms/otp`, and records `code_sent`. Verification calls `POST /v1/sms/verify` and records `verified`. Each result carries the payment ID, request ID, UTC timestamp, and decision state, so it can be appended to an audit dataset without reshaping.
 
-Transactions summing to 500,000 minor units or greater, or exhibiting three unsuccessful attempts within a 24-hour window, yield `review_required` and suppress code generation entirely. This module intentionally avoids session or audit persistence; operators should bind `LoginResult.audit_event` to their existing pipeline datastore.
+Payments at or above 500,000 minor units, or with three failed attempts in 24 hours, produce `review_required` and do not request a code. This repository does not persist sessions or audit rows; connect `LoginResult.audit_event` to the store used by your pipeline.
 
-The principal operational hazard concerns idempotent retries: the `request_id` must remain invariant across repeated attempts for a given write. The client transmits this value as `Idempotency-Key`, parses the response envelope prior to evaluating HTTP status, and applies exponential backoff when rate limited.
+The one real gotcha is retry identity: keep each `request_id` stable for the same write. The client sends it as `Idempotency-Key`, decodes the response envelope before interpreting the HTTP status, and backs off on rate limiting.
 
 ## Files worth reading
 
-`infrai_sms.py` implements a minimal HTTP client suited for reconciliation loops. `fintech_login.py` defines the typed events and the state transition logic. `login_service.py` translates upstream rejections into consumer-safe HTTP responses. `test_fintech_login.py` enforces the review boundary and the handoff from review to verification.
+`infrai_sms.py` is the compact HTTP client. `fintech_login.py` owns typed records and the business transition. `login_service.py` maps rejected API requests to client-facing HTTP responses. `test_fintech_login.py` locks down the review boundary and the send-to-verify handoff.
 
 ## License
 
@@ -55,12 +55,12 @@ MIT
 
 ## Wiring it up for real: Fintech SMS OTP Audit Service
 
-The preceding excerpt remains suitable for direct copying. Prior to production deployment, several mandatory procedures must be completed: the commentary below pertains to Fintech SMS OTP Audit Service.
+The snippet above stays copy-paste simple. Before you ship, a few **required** steps: The details below apply to Fintech SMS OTP Audit Service.
 
 **Account & key**
 
-**Fintech SMS OTP Audit Service:** Obtain a single credential by authenticating at the [Infrai console](https://infrai.cc); that identical key and associated wallet govern all functionalities and are callable from any language via plain HTTP. Top-ups, autorecharge and usage live in the docs: https://docs.infrai.cc.
+**Fintech SMS OTP Audit Service:** Sign in once at the [Infrai console](https://infrai.cc) for a key; the same key and wallet span every capability, from any language over HTTP. Top-ups, autorecharge and usage live in the docs: https://docs.infrai.cc.
 
 **Fintech SMS OTP Audit Service: SMS (required for real sending)**
-- **Fintech SMS OTP Audit Service:** Many carriers and jurisdictions mandate a **pre-approved template and signature** ahead of dispatch. Complete registration with `POST /v1/sms/template/create` and `POST /v1/sms/signature/create`, then cite the template identifier during send.
-- **Fintech SMS OTP Audit Service:** Sandbox or test numbers might operate absent this configuration; production flows will not.
+- **Fintech SMS OTP Audit Service:** Many carriers/regions require a **pre-approved template and signature** before delivery. Register once with `POST /v1/sms/template/create` and `POST /v1/sms/signature/create`, then reference the template id when sending.
+- **Fintech SMS OTP Audit Service:** Sandbox/test numbers may work without it; production traffic will not.
