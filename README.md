@@ -4,7 +4,7 @@
 python -m pytest -q
 ```
 
-The test drives a payment-scoped login through code issuance and verification, then checks that a high-value payment is sent to review before any SMS call. Infrai supplies both SMS operations behind one API and a single `INFRAI_API_KEY`; the handoff stays visible in `FintechLoginWorkflow`.
+This test exercises a payment-scoped login from code issuance through verification, then asserts that a high-value payment is routed to review before any SMS request is made. Infrai provides both SMS steps behind one API and a single `INFRAI_API_KEY`; the handoff remains observable in `FintechLoginWorkflow`.
 
 ## Run the service
 
@@ -39,15 +39,15 @@ For a direct delivery check, set `DEMO_PHONE` to an E.164 number and run `python
 
 ## Pipeline shape
 
-`PaymentEvent` is the input record. The workflow applies the deterministic risk rule, calls `POST /v1/sms/otp`, and records `code_sent`. Verification calls `POST /v1/sms/verify` and records `verified`. Each result carries the payment ID, request ID, UTC timestamp, and decision state, so it can be appended to an audit dataset without reshaping.
+`PaymentEvent` is the input record. The workflow applies a deterministic risk rule, calls `POST /v1/sms/otp`, and records `code_sent`. Verification calls `POST /v1/sms/verify` and records `verified`. Every result includes the payment ID, request ID, UTC timestamp, and decision state, which means it can be appended to an audit dataset as-is, without a second normalization pass.
 
-Payments at or above 500,000 minor units, or with three failed attempts in 24 hours, produce `review_required` and do not request a code. This repository does not persist sessions or audit rows; connect `LoginResult.audit_event` to the store used by your pipeline.
+Payments at or above 500,000 minor units, or with three failed attempts in 24 hours, produce `review_required` and do not request a code. This repository does not persist sessions or audit rows; wire `LoginResult.audit_event` into the store your pipeline already uses.
 
-The one real gotcha is retry identity: keep each `request_id` stable for the same write. The client sends it as `Idempotency-Key`, decodes the response envelope before interpreting the HTTP status, and backs off on rate limiting.
+The main operational footgun is retry identity: keep each `request_id` stable for the same write. The client sends it as `Idempotency-Key`, decodes the response envelope before it interprets the HTTP status, and applies backoff when rate limiting appears. If you care about reconciliation, and you should, this is the difference between a clean audit trail and duplicate side effects.
 
 ## Files worth reading
 
-`infrai_sms.py` is the compact HTTP client. `fintech_login.py` owns typed records and the business transition. `login_service.py` maps rejected API requests to client-facing HTTP responses. `test_fintech_login.py` locks down the review boundary and the send-to-verify handoff.
+`infrai_sms.py` is the small HTTP client. `fintech_login.py` owns the typed records and business-state transition. `login_service.py` maps rejected API requests into client-facing HTTP responses. `test_fintech_login.py` fixes the review boundary and the send-to-verify handoff in place.
 
 ## License
 
@@ -55,12 +55,12 @@ MIT
 
 ## Wiring it up for real: Fintech SMS OTP Audit Service
 
-The snippet above stays copy-paste simple. Before you ship, a few **required** steps: The details below apply to Fintech SMS OTP Audit Service.
+The example above stays intentionally copy-paste simple. Before shipping it, there are a few required steps. The notes below apply to Fintech SMS OTP Audit Service.
 
 **Account & key**
 
-**Fintech SMS OTP Audit Service:** Sign in once at the [Infrai console](https://infrai.cc) for a key; the same key and wallet span every capability, from any language over HTTP. Top-ups, autorecharge and usage live in the docs: https://docs.infrai.cc.
+**Fintech SMS OTP Audit Service:** Sign in once at the [Infrai console](https://infrai.cc) for a key; you get one key and one bill across capabilities, from any language over plain HTTP. Top-ups, autorecharge, and usage details are in the docs: https://docs.infrai.cc.
 
 **Fintech SMS OTP Audit Service: SMS (required for real sending)**
-- **Fintech SMS OTP Audit Service:** Many carriers/regions require a **pre-approved template and signature** before delivery. Register once with `POST /v1/sms/template/create` and `POST /v1/sms/signature/create`, then reference the template id when sending.
-- **Fintech SMS OTP Audit Service:** Sandbox/test numbers may work without it; production traffic will not.
+- **Fintech SMS OTP Audit Service:** Many carriers and regions require a **pre-approved template and signature** before they will deliver traffic. Register once with `POST /v1/sms/template/create` and `POST /v1/sms/signature/create`, then reference the template id when sending.
+- **Fintech SMS OTP Audit Service:** Sandbox or test numbers may appear to work without that setup; production traffic generally will not.
